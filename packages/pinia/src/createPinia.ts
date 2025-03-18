@@ -8,6 +8,7 @@ import { StateTree, StoreGeneric } from './types'
  * Creates a Pinia instance to be used by the application
  */
 export function createPinia(): Pinia {
+  // true 表示这是一个独立的 scope, 不会被父级 scope 进行关联
   const scope = effectScope(true)
   // NOTE: here we could check the window object for a state and directly set it
   // if there is anything like it with Vue 3 SSR
@@ -35,6 +36,9 @@ export function createPinia(): Pinia {
       toBeInstalled = []
     },
 
+    // const pinia = createPinia()
+    // 这里需要先执行 pinia.use(plugin)，来注册 pinia 的插件
+    // 然后再执行 app.use(pinia), 才能将 plugin 添加到 _p 中
     use(plugin) {
       if (!this._a) {
         toBeInstalled.push(plugin)
@@ -47,9 +51,10 @@ export function createPinia(): Pinia {
     _p,
     // it's actually undefined here
     // @ts-expect-error
-    _a: null,
+    _a: null, // 此时 app 还未传入 需要调用 install 方法, 才会赋值
     _e: scope,
     _s: new Map<string, StoreGeneric>(),
+    // pinia 全局状态
     state,
   })
 

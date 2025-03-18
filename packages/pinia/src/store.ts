@@ -210,6 +210,13 @@ function createOptionsStore<
   return store as any
 }
 
+// 1) defineStore(id, fn, options)
+//    options 为 DefineSetupStoreOptions { actions? }, 此时的
+//    options 值类型为空对象或者只包含 actions 属性的对象
+// 2) defineStore(id, options)
+//    options 为 DefineStoreOptions { id, state?, actions?, getters? }
+// 正式因为 defineStore 的重载，所以 函数参数 options 的类型是多种类型, 不同的函数调用形式, 有不同的类型,
+// 所以为联合类型 DefineSetupStoreOptions | DefineStoreOptions
 function createSetupStore<
   Id extends string,
   SS extends Record<any, unknown>,
@@ -239,6 +246,7 @@ function createSetupStore<
   }
 
   // watcher options for $subscribe
+  // $subscribe 其实就是一个对 当前 store.$state 的一个深度 watch
   const $subscribeOptions: WatchOptions = { deep: true }
   /* istanbul ignore else */
   if (__DEV__) {
@@ -283,6 +291,14 @@ function createSetupStore<
   let activeListener: Symbol | undefined
   function $patch(stateMutation: (state: UnwrapRef<S>) => void): void
   function $patch(partialState: _DeepPartial<UnwrapRef<S>>): void
+  // 1. $patch(stateMutationFn) 直接出入 $patch 一个状态修改函数
+  // $patch(($state) => {
+  //   $state.xxx = 1
+  // })
+  // 2. 或者直接传入一个对象进行修改, 会进行状态合并
+  // $patch({a: 1})
+  // $patch 既接受一个状态修改函数,也可以传入一个状态对象进行修改
+  // 主要用于提交对状态数据的修改(这里可以对修改进行劫持, 可以结合开发者工具(chrome插件进行修改的状态查看))
   function $patch(
     partialStateOrMutator:
       | _DeepPartial<UnwrapRef<S>>
@@ -377,6 +393,7 @@ function createSetupStore<
         onErrorCallbackList.push(callback)
       }
 
+      // 在执行用户的 action 函数之前, 先执行这里的 triggerSubscriptions 函数
       // @ts-expect-error
       triggerSubscriptions(actionSubscriptions, {
         args,
@@ -388,6 +405,7 @@ function createSetupStore<
 
       let ret: unknown
       try {
+        // 给 action 函数绑定 this (箭头函数无 this)
         ret = fn.apply(this && this.$id === $id ? this : store, args)
         // handle sync errors
       } catch (error) {
@@ -396,8 +414,11 @@ function createSetupStore<
       }
 
       if (ret instanceof Promise) {
+        // 注意这里是 promise 直接返回, 不执行下面的语句了,
+        // 不会导致 triggerSubscriptions(afterCallbackList) 重复执行, 提前 return
         return ret
           .then((value) => {
+            // 等用户的函数执行完后,再执行 after 钩子
             triggerSubscriptions(afterCallbackList, value)
             return value
           })
@@ -434,11 +455,13 @@ function createSetupStore<
     $onAction: addSubscription.bind(null, actionSubscriptions),
     $patch,
     $reset,
+    // $subscribe 其实就是一个对 当前 store.$state 的一个深度 watch
     $subscribe(callback, options = {}) {
       const removeSubscription = addSubscription(
         subscriptions,
         callback,
         options.detached,
+        // 执行 removeSubscription() 也会执行这里的传入的 stopWatcher()
         () => stopWatcher()
       )
       const stopWatcher = scope.run(() =>
@@ -844,11 +867,20 @@ export function defineStore(
         _ActionsTree
       >
 
+  // defineStore 函数重载, 参数类型可以在实现代码中进行类型缩窄确定到具体类型
+
   const isSetupStore = typeof setup === 'function'
   // the option store setup will contain the actual options in this case
   options = isSetupStore ? setupOptions : setup
 
   function useStore(pinia?: Pinia | null, hot?: StoreGeneric): StoreGeneric {
+    // hasInjectionContext 用于判断是否存在注入上下文(即是否在组件内部,即组件实例是否存在)
+    // hasInjectionContext => !!(currentInstance || currentRenderingInstance || currentApp)
+    // 如果存在注入上下文(其实也可以表明运行上下文在 组件的 setup 函数中运行),
+    // 则使用 inject(piniaSymbol, null) 获取 pinia 实例
+    // 这里可以确保运行上下文在组件的 setup 函数中, 这里限制了函数运行时的上下文, 不可以在组件外部使用, 不可以任意
+    // 运行函数, 这样可以确保 store 的使用在组件内部, 保证 store 的使用在组件的生命周期内
+    // 这种函数运行上下文的思想, 需要注意
     const hasContext = hasInjectionContext()
     pinia =
       // in test mode, ignore the argument provided as we can always retrieve a
@@ -857,6 +889,10 @@ export function defineStore(
       (hasContext ? inject(piniaSymbol, null) : null)
     if (pinia) setActivePinia(pinia)
 
+    // 一开始就需要使用 app.use(pinia) 注册 pinia 插件,
+    // 这里面就会执行 app.proivde(piniaSymbol, pinia) 注册到 app 上
+    // 这样在组件内部就可以通过 inject(piniaSymbol) 获取 pinia 实例,
+    // 若是获取不到说明可能没有使用 app.use(pinia)
     if (__DEV__ && !activePinia) {
       throw new Error(
         `[🍍]: "getActivePinia()" was called but there was no active Pinia. Are you trying to use a store before calling "app.use(pinia)"?\n` +
