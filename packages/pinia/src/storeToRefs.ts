@@ -83,6 +83,7 @@ export type StoreToRefs<SS extends StoreGeneric> =
  * completely ignored.
  *
  * @param store - store to extract the refs from
+ * 提取 store 中所有的响应式数据(ref), 过滤掉函数等其他数据
  */
 export function storeToRefs<SS extends StoreGeneric>(
   store: SS

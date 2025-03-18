@@ -174,6 +174,7 @@ const useFooStore = defineStore('foo', setup, setupOptions) {
           // 2. 或者直接传入一个对象进行修改, 会进行状态合并
           // $patch({a: 1})
           // $patch 既接受一个状态修改函数,也可以传入一个状态对象进行修改
+          let activeListener: Symbol | undefined
           const $patch = function(partialStateOrMutator) {
             let subscriptionMutation: SubscriptionCallbackMutation<S>
             isListening = isSyncListening = false
@@ -194,8 +195,15 @@ const useFooStore = defineStore('foo', setup, setupOptions) {
                 events: debuggerEvents as DebuggerEvent[],
               }
             }
+            // activeListener 是 函数 $patch 外部的变量
+            // 注意这里每一次执行都是创建一个新的 Symbol()
             const myListenerId = (activeListener = Symbol())
+            // 当第一次 $patch 执行后, 不再连续执行第二次,
+            // 最后就在异步队列中执行时, activeListener === myListenerId 为 true
+            // $patch() -> activeListener === myListenerId
+            //
             nextTick().then(() => {
+              // 捕获的 Symbol 每次都是不同的
               if (activeListener === myListenerId) {
                 isListening = true
               }
